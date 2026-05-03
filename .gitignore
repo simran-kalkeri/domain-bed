@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.pyc
+
+# Virtual environment
+venv/
+domainbed/venv/
+env/
+.env
+
+# DomainBed: datasets (large binary files)
+domainbed/data/
+data/
+
+# DomainBed: private/internal file
+domainbed/facebook.py
+
+# Training output directories (all variants)
+train_output/
+train_output_*/
+
+# Model checkpoints and saved weights
+*.pth
+*.pt
+*.ckpt
+*.pkl
+
+# Log files
+*.log
+err.txt
+out.txt
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Misc build artifacts
+*.egg-info/
+dist/
+build/
