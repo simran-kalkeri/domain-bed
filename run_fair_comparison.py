@@ -33,21 +33,35 @@ N_STEPS   = 5000        # standard for PACS
 # Shared backbone: ResNet18 for everyone, no AugMix — fair comparison
 SHARED_HPARAMS = {"resnet18": True, "resnet50_augmix": False}
 
-DCSAM_HPARAMS  = {**SHARED_HPARAMS, "rho": 0.05, "lambda_feat": 0.5, "lambda_var": 0.5}
+# Tuned DCSAM: weaker consistency constraint, no variance penalty, 2x steps
+# lambda_feat 0.5→0.1 : less aggressive domain constraint, more room to learn
+# lambda_var  0.5→0.0 : variance penalty was hurting sketch/cartoon, disabled
+# steps       5000→10000: SAM 2-pass is slower; give it time to converge
+DCSAM_HPARAMS_V2 = {
+    **SHARED_HPARAMS,
+    "rho": 0.05,
+    "lambda_feat": 0.1,
+    "lambda_var": 0.0,
+}
+DCSAM_STEPS_V2 = 10000
 
 # All 4 PACS test environments
 TEST_ENVS = [0, 1, 2, 3]
 ENV_NAMES = {0: "art_painting", 1: "cartoon", 2: "photo", 3: "sketch"}
 
-ALGORITHMS = [
-    {"algorithm": "ERM",         "steps": N_STEPS, "hparams": SHARED_HPARAMS},
-    {"algorithm": "ERMPlusPlus", "steps": N_STEPS, "hparams": SHARED_HPARAMS},
-    {"algorithm": "DCSAM",       "steps": N_STEPS, "hparams": DCSAM_HPARAMS},
+# Baseline algorithms (already trained — re-used via --results-only or --dcsam-only)
+BASELINES = [
+    {"algorithm": "ERM",         "steps": N_STEPS, "hparams": SHARED_HPARAMS,  "tag": ""},
+    {"algorithm": "ERMPlusPlus", "steps": N_STEPS, "hparams": SHARED_HPARAMS,  "tag": ""},
 ]
 
+# Tuned DCSAM config (new run)
+DCSAM_CFG = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V2,
+             "hparams": DCSAM_HPARAMS_V2, "tag": "_v2"}
+
 # ── Runner ─────────────────────────────────────────────────────────────
-def run(algorithm, steps, hparams, test_env):
-    output_dir = f"./train_output_{algorithm.lower()}_pacs_e{test_env}"
+def run(algorithm, steps, hparams, test_env, tag=""):
+    output_dir = f"./train_output_{algorithm.lower()}_pacs_e{test_env}{tag}"
     hparams_json = json.dumps(hparams)
 
     print("\n" + "=" * 70)
@@ -134,19 +148,42 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     results_only = "--results-only" in _sys.argv
+    dcsam_only   = "--dcsam-only"   in _sys.argv
 
     results = {}
-    for cfg in ALGORITHMS:
+
+    # ── Baselines (skip training if --results-only or --dcsam-only) ────
+    for cfg in BASELINES:
         algo = cfg["algorithm"]
+        tag  = cfg["tag"]
         accs = []
         for env in TEST_ENVS:
-            out_dir = f"./train_output_{algo.lower()}_pacs_e{env}"
-            if not results_only:
-                out_dir = run(cfg["algorithm"], cfg["steps"], cfg["hparams"], env)
+            out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
+            if not results_only and not dcsam_only:
+                out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
             acc = parse_final_test_acc(out_dir, env)
             accs.append(acc)
-            status = f"{acc:.4f}" if acc is not None else "N/A (output dir missing)"
+            status = f"{acc:.4f}" if acc is not None else "N/A"
             print(f"  {algo} env{env} ({ENV_NAMES[env]}): {status}")
         results[algo] = accs
+
+    # ── Tuned DCSAM (always trains unless --results-only) ──────────────
+    cfg  = DCSAM_CFG
+    algo = cfg["algorithm"]
+    tag  = cfg["tag"]
+    print(f"\n  [Tuned DCSAM] rho={cfg['hparams']['rho']}, "
+          f"lambda_feat={cfg['hparams']['lambda_feat']}, "
+          f"lambda_var={cfg['hparams']['lambda_var']}, "
+          f"steps={cfg['steps']}")
+    accs = []
+    for env in TEST_ENVS:
+        out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
+        if not results_only:
+            out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
+        acc = parse_final_test_acc(out_dir, env)
+        accs.append(acc)
+        status = f"{acc:.4f}" if acc is not None else "N/A"
+        print(f"  DCSAM(tuned) env{env} ({ENV_NAMES[env]}): {status}")
+    results["DCSAM(tuned)"] = accs
 
     print_summary(results)
