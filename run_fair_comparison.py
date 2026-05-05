@@ -73,25 +73,35 @@ def run(algorithm, steps, hparams, test_env):
 
 
 def parse_final_test_acc(output_dir, test_env):
-    """Read the last line of out.txt and extract env{test_env}_out_acc."""
+    """Read the LAST data row of out.txt and extract env{test_env}_out_acc."""
     out_file = os.path.join(output_dir, "out.txt")
     if not os.path.exists(out_file):
         return None
     with open(out_file) as f:
         lines = [l.strip() for l in f if l.strip()]
 
-    # Find the header line and the last data line
-    header, data = None, None
+    # Find the header line, then collect ALL subsequent data rows — use the last
+    header = None
+    data_rows = []
     for i, line in enumerate(lines):
         if "env0_out_acc" in line or "env0_in_acc" in line:
             header = line.split()
-            if i + 1 < len(lines):
-                data = lines[i + 1].split()
-    if header is None or data is None:
+            data_rows = []          # reset: only collect rows after this header
+        elif header is not None:
+            parts = line.split()
+            # Data rows start with a float (accuracy value)
+            try:
+                float(parts[0])
+                data_rows.append(parts)
+            except (ValueError, IndexError):
+                pass  # skip non-data lines
+
+    if header is None or not data_rows:
         return None
 
+    data = data_rows[-1]  # last checkpoint = final training step
+
     key = f"env{test_env}_out_acc"
-    # Header columns are truncated to 12 chars in DomainBed output
     for col_idx, col in enumerate(header):
         if key.startswith(col[:12]) or col.startswith(key[:12]):
             try:
@@ -101,29 +111,12 @@ def parse_final_test_acc(output_dir, test_env):
     return None
 
 
-# ── Main ───────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-    results = {}  # {algorithm: [acc_e0, acc_e1, acc_e2, acc_e3]}
-
-    for cfg in ALGORITHMS:
-        algo = cfg["algorithm"]
-        accs = []
-        for env in TEST_ENVS:
-            out_dir = run(cfg["algorithm"], cfg["steps"], cfg["hparams"], env)
-            acc = parse_final_test_acc(out_dir, env)
-            accs.append(acc)
-            print(f"\n  >>> {algo} env{env} ({ENV_NAMES[env]}): {acc:.4f}" if acc else
-                  f"\n  >>> {algo} env{env}: could not parse accuracy")
-        results[algo] = accs
-
-    # ── Final summary table ───────────────────────────────────────────
+def print_summary(results):
     print("\n" + "=" * 70)
     print("  PACS RESULTS SUMMARY  (ResNet18, fair comparison)")
     print("=" * 70)
-    header = f"{'Algorithm':<15} {'Art':>8} {'Cartoon':>8} {'Photo':>8} {'Sketch':>8} {'Avg':>8}"
-    print(header)
+    hdr = f"{'Algorithm':<15} {'Art':>8} {'Cartoon':>8} {'Photo':>8} {'Sketch':>8} {'Avg':>8}"
+    print(hdr)
     print("-" * 70)
     for algo, accs in results.items():
         valid = [a for a in accs if a is not None]
@@ -132,3 +125,28 @@ if __name__ == "__main__":
         print(f"{algo:<15} {cols[0]:>8} {cols[1]:>8} {cols[2]:>8} {cols[3]:>8} {avg:>8.4f}")
     print("=" * 70)
     print("\nThe 'Avg' column is your PACS score to report in the paper.")
+
+
+# ── Main ───────────────────────────────────────────────────────────────
+import sys as _sys
+
+if __name__ == "__main__":
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+    results_only = "--results-only" in _sys.argv
+
+    results = {}
+    for cfg in ALGORITHMS:
+        algo = cfg["algorithm"]
+        accs = []
+        for env in TEST_ENVS:
+            out_dir = f"./train_output_{algo.lower()}_pacs_e{env}"
+            if not results_only:
+                out_dir = run(cfg["algorithm"], cfg["steps"], cfg["hparams"], env)
+            acc = parse_final_test_acc(out_dir, env)
+            accs.append(acc)
+            status = f"{acc:.4f}" if acc is not None else "N/A (output dir missing)"
+            print(f"  {algo} env{env} ({ENV_NAMES[env]}): {status}")
+        results[algo] = accs
+
+    print_summary(results)
