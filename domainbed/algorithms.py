@@ -2670,13 +2670,14 @@ class DCSAM(ERM):
         self.lambda_feat = hparams.get("lambda_feat", 1.0)
         self.lambda_var  = hparams.get("lambda_var",  1.0)
 
-        # Use SGD with momentum as the SAM base — this is theoretically correct
-        # (SAM's flatness guarantees are derived for SGD-style updates).
+        # Use Adam as the SAM base optimizer to match ERM's optimizer.
+        # lr=5e-5 (DomainBed default for ResNet fine-tuning) is calibrated for
+        # Adam's adaptive scaling — using SGD at the same lr barely updates weights.
+        # SAM works with any base optimizer; Adam+SAM converges reliably.
         self.optimizer = SAM(
             self.network.parameters(),
-            torch.optim.SGD,
+            torch.optim.Adam,
             lr=hparams["lr"],
-            momentum=0.9,
             weight_decay=hparams["weight_decay"],
             rho=self.rho,
         )

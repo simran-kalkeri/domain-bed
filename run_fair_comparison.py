@@ -33,10 +33,7 @@ N_STEPS   = 5000        # standard for PACS
 # Shared backbone: ResNet18 for everyone, no AugMix — fair comparison
 SHARED_HPARAMS = {"resnet18": True, "resnet50_augmix": False}
 
-# Tuned DCSAM: weaker consistency constraint, no variance penalty, 2x steps
-# lambda_feat 0.5→0.1 : less aggressive domain constraint, more room to learn
-# lambda_var  0.5→0.0 : variance penalty was hurting sketch/cartoon, disabled
-# steps       5000→10000: SAM 2-pass is slower; give it time to converge
+# Tuned DCSAM v2 (lambda reduced, 10k steps, but still used SGD — kept for reference)
 DCSAM_HPARAMS_V2 = {
     **SHARED_HPARAMS,
     "rho": 0.05,
@@ -44,6 +41,17 @@ DCSAM_HPARAMS_V2 = {
     "lambda_var": 0.0,
 }
 DCSAM_STEPS_V2 = 10000
+
+# DCSAM v3 — FIXED: Adam base optimizer (same as ERM), 5000 steps
+# Root-cause fix: SGD+lr=5e-5 was 100x too slow for fine-tuning.
+# Adam+lr=5e-5 matches ERM; SAM flatness + consistency now kick in properly.
+DCSAM_HPARAMS_V3 = {
+    **SHARED_HPARAMS,
+    "rho": 0.05,
+    "lambda_feat": 0.1,
+    "lambda_var": 0.0,
+}
+DCSAM_STEPS_V3 = 5000
 
 # All 4 PACS test environments
 TEST_ENVS = [0, 1, 2, 3]
@@ -55,9 +63,13 @@ BASELINES = [
     {"algorithm": "ERMPlusPlus", "steps": N_STEPS, "hparams": SHARED_HPARAMS,  "tag": ""},
 ]
 
-# Tuned DCSAM config (new run)
-DCSAM_CFG = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V2,
-             "hparams": DCSAM_HPARAMS_V2, "tag": "_v2"}
+# All DCSAM variants (v2 for reference, v3 is the fixed version)
+DCSAM_CFG    = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V2,
+                "hparams": DCSAM_HPARAMS_V2, "tag": "_v2",
+                "label": "DCSAM(v2-tuned)"}
+DCSAM_CFG_V3 = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V3,
+                "hparams": DCSAM_HPARAMS_V3, "tag": "_v3",
+                "label": "DCSAM(v3-Adam)"}
 
 # ── Runner ─────────────────────────────────────────────────────────────
 def run(algorithm, steps, hparams, test_env, tag=""):
@@ -147,19 +159,20 @@ import sys as _sys
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    results_only = "--results-only" in _sys.argv
-    dcsam_only   = "--dcsam-only"   in _sys.argv
+    results_only  = "--results-only"   in _sys.argv
+    dcsam_only    = "--dcsam-only"     in _sys.argv
+    dcsam_v3_only = "--dcsam-v3-only" in _sys.argv
 
     results = {}
 
-    # ── Baselines (skip training if --results-only or --dcsam-only) ────
+    # ── Baselines (skip if any --*-only flag is set) ────────────────
     for cfg in BASELINES:
         algo = cfg["algorithm"]
         tag  = cfg["tag"]
         accs = []
         for env in TEST_ENVS:
             out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
-            if not results_only and not dcsam_only:
+            if not results_only and not dcsam_only and not dcsam_v3_only:
                 out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
             acc = parse_final_test_acc(out_dir, env)
             accs.append(acc)
@@ -167,14 +180,28 @@ if __name__ == "__main__":
             print(f"  {algo} env{env} ({ENV_NAMES[env]}): {status}")
         results[algo] = accs
 
-    # ── Tuned DCSAM (always trains unless --results-only) ──────────────
-    cfg  = DCSAM_CFG
-    algo = cfg["algorithm"]
-    tag  = cfg["tag"]
-    print(f"\n  [Tuned DCSAM] rho={cfg['hparams']['rho']}, "
-          f"lambda_feat={cfg['hparams']['lambda_feat']}, "
-          f"lambda_var={cfg['hparams']['lambda_var']}, "
-          f"steps={cfg['steps']}")
+    # ── DCSAM v2 (reference, already trained) ─────────────────────
+    if not dcsam_v3_only:
+        cfg  = DCSAM_CFG
+        algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
+        print(f"\n  [{label}] rho={cfg['hparams']['rho']}, "
+              f"lambda_feat={cfg['hparams']['lambda_feat']}, steps={cfg['steps']}")
+        accs = []
+        for env in TEST_ENVS:
+            out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
+            if not results_only and not dcsam_v3_only:
+                out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
+            acc = parse_final_test_acc(out_dir, env)
+            accs.append(acc)
+            status = f"{acc:.4f}" if acc is not None else "N/A"
+            print(f"  {label} env{env} ({ENV_NAMES[env]}): {status}")
+        results[label] = accs
+
+    # ── DCSAM v3 (Adam fix — the real comparison) ────────────────
+    cfg  = DCSAM_CFG_V3
+    algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
+    print(f"\n  [{label}] Adam base, rho={cfg['hparams']['rho']}, "
+          f"lambda_feat={cfg['hparams']['lambda_feat']}, steps={cfg['steps']}")
     accs = []
     for env in TEST_ENVS:
         out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
@@ -183,7 +210,8 @@ if __name__ == "__main__":
         acc = parse_final_test_acc(out_dir, env)
         accs.append(acc)
         status = f"{acc:.4f}" if acc is not None else "N/A"
-        print(f"  DCSAM(tuned) env{env} ({ENV_NAMES[env]}): {status}")
-    results["DCSAM(tuned)"] = accs
+        print(f"  {label} env{env} ({ENV_NAMES[env]}): {status}")
+    results[label] = accs
 
     print_summary(results)
+
