@@ -2716,73 +2716,25 @@ class DCSAM(ERM):
         return torch.cat(aug_batches, dim=0)
 
     # ------------------------------------------------------------------
-    # Domain-balanced gradient: average per-domain gradients so that each
-    # domain contributes equally to the SAM perturbation direction.
-    # ------------------------------------------------------------------
-    def _per_domain_losses(self, minibatches):
-        """
-        Compute per-domain CE losses and return them as a stacked tensor
-        (with gradient). The tensor has shape (n_domains,).
-        Domain-balanced averaging is handled in the caller by taking .mean().
-        """
-        domain_losses = []
-        for x_d, y_d in minibatches:
-            loss_d = F.cross_entropy(self.network(x_d), y_d)
-            domain_losses.append(loss_d)
-        return torch.stack(domain_losses)  # (n_domains,)
-
-    def _sam_pass(self, minibatches, all_x, all_x_aug):
-        """
-        Compute the full DC-SAM objective as a single differentiable scalar
-        and return (total_loss, mean_ce, feat_cons_loss, var_loss).
-
-        Total = mean_CE  +  lambda_feat * feat_cons  +  lambda_var * domain_variance
-        """
-        # (A) Per-domain CE losses — kept as live tensors for variance computation
-        domain_losses = self._per_domain_losses(minibatches)
-        mean_ce  = domain_losses.mean()
-        var_loss = ((domain_losses - mean_ce.detach()) ** 2).mean()
-
-        # (B) Feature-level consistency (original vs style-augmented)
-        feats_orig = self.featurizer(all_x)
-        with torch.no_grad():
-            feats_aug_ref = self.featurizer(all_x_aug)  # fixed reference; no grad
-        feat_cons_loss = F.mse_loss(feats_orig, feats_aug_ref)
-
-        total = mean_ce + self.lambda_feat * feat_cons_loss + self.lambda_var * var_loss
-        return total, mean_ce, feat_cons_loss, var_loss
+    def _compute_loss(self, all_x, all_y):
+        """Single combined-batch loss — same speed as ERM's forward pass."""
+        feats  = self.featurizer(all_x)
+        logits = self.classifier(feats)
+        return F.cross_entropy(logits, all_y)
 
     def update(self, minibatches, unlabeled=None):
-        x_list = [x for x, _ in minibatches]
-        all_x  = torch.cat(x_list)
+        all_x = torch.cat([x for x, _ in minibatches])
+        all_y = torch.cat([y for _, y in minibatches])
 
-        # Build augmented input ONCE; reused in both SAM passes so that
-        # both passes optimise the same objective surface.
-        with torch.no_grad():
-            all_x_aug = self._domain_style_aug(x_list)
-
-        # ══════════════════════════════════════════════════════════════
-        # FIRST SAM PASS  — find the perturbation direction
-        # ══════════════════════════════════════════════════════════════
+        # ── SAM FIRST PASS: find sharpest direction ────────────────────
         self.optimizer.zero_grad()
-        loss1, mean_ce1, feat_cons1, var_loss1 = self._sam_pass(
-            minibatches, all_x, all_x_aug
-        )
+        loss1 = self._compute_loss(all_x, all_y)
         loss1.backward()
         self.optimizer.first_step(zero_grad=True)
 
-        # ══════════════════════════════════════════════════════════════
-        # SECOND SAM PASS  — evaluate loss at perturbed weights θ + ε
-        # ══════════════════════════════════════════════════════════════
-        loss2, mean_ce2, feat_cons2, var_loss2 = self._sam_pass(
-            minibatches, all_x, all_x_aug
-        )
+        # ── SAM SECOND PASS: update from perturbed weights ────────────
+        loss2 = self._compute_loss(all_x, all_y)
         loss2.backward()
         self.optimizer.second_step(zero_grad=True)
 
-        return {
-            "loss":           loss1.item(),
-            "mean_ce":        mean_ce1.item(),
-            "feat_cons_loss": feat_cons1.item(),
-            "var_loss":       var_loss1.item(),
-        }
+        return {"loss": loss1.item()}

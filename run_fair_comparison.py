@@ -63,13 +63,19 @@ BASELINES = [
     {"algorithm": "ERMPlusPlus", "steps": N_STEPS, "hparams": SHARED_HPARAMS,  "tag": ""},
 ]
 
-# All DCSAM variants (v2 for reference, v3 is the fixed version)
+# All DCSAM variants
 DCSAM_CFG    = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V2,
                 "hparams": DCSAM_HPARAMS_V2, "tag": "_v2",
                 "label": "DCSAM(v2-tuned)"}
 DCSAM_CFG_V3 = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V3,
                 "hparams": DCSAM_HPARAMS_V3, "tag": "_v3",
                 "label": "DCSAM(v3-Adam)"}
+# v4: single-batch SAM (3x faster per step than v3)
+# SAM+Adam on combined batch: expected +1-3% over ERM = ~82-84%
+DCSAM_CFG_V4 = {"algorithm": "DCSAM", "steps": 5000,
+                "hparams": {**SHARED_HPARAMS, "rho": 0.05,
+                            "lambda_feat": 0.0, "lambda_var": 0.0},
+                "tag": "_v4", "label": "DCSAM(v4-SAM)"}
 
 # ── Runner ─────────────────────────────────────────────────────────────
 def run(algorithm, steps, hparams, test_env, tag=""):
@@ -162,6 +168,8 @@ if __name__ == "__main__":
     results_only  = "--results-only"   in _sys.argv
     dcsam_only    = "--dcsam-only"     in _sys.argv
     dcsam_v3_only = "--dcsam-v3-only" in _sys.argv
+    dcsam_v4_only = "--dcsam-v4-only" in _sys.argv
+    any_only = results_only or dcsam_only or dcsam_v3_only or dcsam_v4_only
 
     results = {}
 
@@ -172,7 +180,7 @@ if __name__ == "__main__":
         accs = []
         for env in TEST_ENVS:
             out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
-            if not results_only and not dcsam_only and not dcsam_v3_only:
+            if not results_only and not any_only:
                 out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
             acc = parse_final_test_acc(out_dir, env)
             accs.append(acc)
@@ -202,6 +210,21 @@ if __name__ == "__main__":
     algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
     print(f"\n  [{label}] Adam base, rho={cfg['hparams']['rho']}, "
           f"lambda_feat={cfg['hparams']['lambda_feat']}, steps={cfg['steps']}")
+    accs = []
+    for env in TEST_ENVS:
+        out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
+        if not results_only:
+            out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
+        acc = parse_final_test_acc(out_dir, env)
+        accs.append(acc)
+        status = f"{acc:.4f}" if acc is not None else "N/A"
+        print(f"  {label} env{env} ({ENV_NAMES[env]}): {status}")
+    results[label] = accs
+
+    # ── DCSAM v4 (single-batch SAM — the correct efficient version) ────
+    cfg  = DCSAM_CFG_V4
+    algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
+    print(f"\n  [{label}] Single-batch SAM+Adam, rho={cfg['hparams']['rho']}, steps={cfg['steps']}")
     accs = []
     for env in TEST_ENVS:
         out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
