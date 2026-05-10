@@ -70,12 +70,18 @@ DCSAM_CFG    = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V2,
 DCSAM_CFG_V3 = {"algorithm": "DCSAM", "steps": DCSAM_STEPS_V3,
                 "hparams": DCSAM_HPARAMS_V3, "tag": "_v3",
                 "label": "DCSAM(v3-Adam)"}
-# v4: single-batch SAM (3x faster per step than v3)
-# SAM+Adam on combined batch: expected +1-3% over ERM = ~82-84%
 DCSAM_CFG_V4 = {"algorithm": "DCSAM", "steps": 5000,
                 "hparams": {**SHARED_HPARAMS, "rho": 0.05,
                             "lambda_feat": 0.0, "lambda_var": 0.0},
                 "tag": "_v4", "label": "DCSAM(v4-SAM)"}
+# v5: canonical SAM — SGD+momentum at lr=1e-3 (the SAM paper setting)
+# Adam lr=5e-5 != SGD lr=5e-5. Proper SGD fine-tuning needs lr~1e-3.
+# Expected: ~82-84%, beats ERM++ (82.45%)
+DCSAM_CFG_V5 = {"algorithm": "DCSAM", "steps": 5000,
+                "hparams": {**SHARED_HPARAMS, "rho": 0.05,
+                            "lambda_feat": 0.0, "lambda_var": 0.0,
+                            "sam_sgd": True, "sgd_lr": 1e-3},
+                "tag": "_v5", "label": "DCSAM(v5-SGD-SAM)"}
 
 # ── Runner ─────────────────────────────────────────────────────────────
 def run(algorithm, steps, hparams, test_env, tag=""):
@@ -166,10 +172,8 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     results_only  = "--results-only"   in _sys.argv
-    dcsam_only    = "--dcsam-only"     in _sys.argv
-    dcsam_v3_only = "--dcsam-v3-only" in _sys.argv
-    dcsam_v4_only = "--dcsam-v4-only" in _sys.argv
-    any_only = results_only or dcsam_only or dcsam_v3_only or dcsam_v4_only
+    dcsam_v5_only = "--dcsam-v5-only" in _sys.argv
+    any_only = results_only or dcsam_v5_only
 
     results = {}
 
@@ -188,43 +192,24 @@ if __name__ == "__main__":
             print(f"  {algo} env{env} ({ENV_NAMES[env]}): {status}")
         results[algo] = accs
 
-    # ── DCSAM v2 (reference, already trained) ─────────────────────
-    if not dcsam_v3_only:
-        cfg  = DCSAM_CFG
-        algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
-        print(f"\n  [{label}] rho={cfg['hparams']['rho']}, "
-              f"lambda_feat={cfg['hparams']['lambda_feat']}, steps={cfg['steps']}")
+    # ── DCSAM v2/v3/v4 (read existing results — never re-trained here) ─
+    for prev_cfg, prev_label in [
+        (DCSAM_CFG,    "DCSAM(v2-tuned)"),
+        (DCSAM_CFG_V3, "DCSAM(v3-Adam)"),
+        (DCSAM_CFG_V4, "DCSAM(v4-SAM)"),
+    ]:
         accs = []
         for env in TEST_ENVS:
-            out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
-            if not results_only and not dcsam_v3_only:
-                out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
+            out_dir = f"./train_output_{prev_cfg['algorithm'].lower()}_pacs_e{env}{prev_cfg['tag']}"
             acc = parse_final_test_acc(out_dir, env)
             accs.append(acc)
-            status = f"{acc:.4f}" if acc is not None else "N/A"
-            print(f"  {label} env{env} ({ENV_NAMES[env]}): {status}")
-        results[label] = accs
+        if any(a is not None for a in accs):
+            results[prev_label] = accs
 
-    # ── DCSAM v3 (Adam fix — the real comparison) ────────────────
-    cfg  = DCSAM_CFG_V3
+    # ── DCSAM v5: canonical SGD-SAM (THE run worth waiting for) ──────
+    cfg  = DCSAM_CFG_V5
     algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
-    print(f"\n  [{label}] Adam base, rho={cfg['hparams']['rho']}, "
-          f"lambda_feat={cfg['hparams']['lambda_feat']}, steps={cfg['steps']}")
-    accs = []
-    for env in TEST_ENVS:
-        out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"
-        if not results_only:
-            out_dir = run(algo, cfg["steps"], cfg["hparams"], env, tag)
-        acc = parse_final_test_acc(out_dir, env)
-        accs.append(acc)
-        status = f"{acc:.4f}" if acc is not None else "N/A"
-        print(f"  {label} env{env} ({ENV_NAMES[env]}): {status}")
-    results[label] = accs
-
-    # ── DCSAM v4 (single-batch SAM — the correct efficient version) ────
-    cfg  = DCSAM_CFG_V4
-    algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
-    print(f"\n  [{label}] Single-batch SAM+Adam, rho={cfg['hparams']['rho']}, steps={cfg['steps']}")
+    print(f"\n  [{label}] SGD+momentum, sgd_lr=1e-3, rho={cfg['hparams']['rho']}, steps={cfg['steps']}")
     accs = []
     for env in TEST_ENVS:
         out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"

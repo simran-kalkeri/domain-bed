@@ -2666,21 +2666,34 @@ class DCSAM(ERM):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super().__init__(input_shape, num_classes, num_domains, hparams)
 
-        self.rho        = hparams.get("rho",         0.05)
-        self.lambda_feat = hparams.get("lambda_feat", 1.0)
-        self.lambda_var  = hparams.get("lambda_var",  1.0)
+        self.rho         = hparams.get("rho",         0.05)
+        self.lambda_feat  = hparams.get("lambda_feat", 0.0)
+        self.lambda_var   = hparams.get("lambda_var",  0.0)
+        use_sgd           = hparams.get("sam_sgd",     False)
 
-        # Use Adam as the SAM base optimizer to match ERM's optimizer.
-        # lr=5e-5 (DomainBed default for ResNet fine-tuning) is calibrated for
-        # Adam's adaptive scaling — using SGD at the same lr barely updates weights.
-        # SAM works with any base optimizer; Adam+SAM converges reliably.
-        self.optimizer = SAM(
-            self.network.parameters(),
-            torch.optim.Adam,
-            lr=hparams["lr"],
-            weight_decay=hparams["weight_decay"],
-            rho=self.rho,
-        )
+        if use_sgd:
+            # Canonical SAM (Foret et al. 2021) uses SGD+momentum.
+            # For fine-tuning pretrained ResNets, lr=1e-3 is appropriate
+            # (Adam's lr=5e-5 is NOT equivalent for SGD).
+            sgd_lr = hparams.get("sgd_lr", 1e-3)
+            self.optimizer = SAM(
+                self.network.parameters(),
+                torch.optim.SGD,
+                lr=sgd_lr,
+                momentum=0.9,
+                weight_decay=hparams["weight_decay"],
+                rho=self.rho,
+            )
+        else:
+            # Adam-SAM: faster convergence, used as fallback.
+            self.optimizer = SAM(
+                self.network.parameters(),
+                torch.optim.Adam,
+                lr=hparams["lr"],
+                weight_decay=hparams["weight_decay"],
+                rho=self.rho,
+            )
+
 
     # ------------------------------------------------------------------
     # Feature-level augmentation: swap channel statistics between two
