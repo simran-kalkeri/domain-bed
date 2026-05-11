@@ -82,6 +82,16 @@ DCSAM_CFG_V5 = {"algorithm": "DCSAM", "steps": 5000,
                             "lambda_feat": 0.0, "lambda_var": 0.0,
                             "sam_sgd": True, "sgd_lr": 1e-3},
                 "tag": "_v5", "label": "DCSAM(v5-SGD-SAM)"}
+# v6: TRUE DC-SAM — domain-balanced CE + CORAL + SGD-SAM
+# Novel contribution: finds flat minima that are ALSO domain-invariant.
+# Domain-balanced CE: each domain contributes equally to SAM perturbation.
+# CORAL: aligns feature covariances across domains at the perturbed weights.
+# Single forward pass (2x ERM speed) — no overhead vs plain SAM.
+DCSAM_CFG_V6 = {"algorithm": "DCSAM", "steps": 5000,
+                "hparams": {**SHARED_HPARAMS, "rho": 0.05,
+                            "lambda_feat": 0.1, "lambda_var": 0.0,
+                            "sam_sgd": True, "sgd_lr": 1e-3},
+                "tag": "_v6", "label": "DCSAM(v6-DC-SAM)"}
 
 # ── Runner ─────────────────────────────────────────────────────────────
 def run(algorithm, steps, hparams, test_env, tag=""):
@@ -172,8 +182,8 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     results_only  = "--results-only"   in _sys.argv
-    dcsam_v5_only = "--dcsam-v5-only" in _sys.argv
-    any_only = results_only or dcsam_v5_only
+    dcsam_v6_only = "--dcsam-v6-only" in _sys.argv
+    any_only = results_only or dcsam_v6_only
 
     results = {}
 
@@ -192,11 +202,12 @@ if __name__ == "__main__":
             print(f"  {algo} env{env} ({ENV_NAMES[env]}): {status}")
         results[algo] = accs
 
-    # ── DCSAM v2/v3/v4 (read existing results — never re-trained here) ─
+    # ── DCSAM v2/v3/v4/v5 (read existing results — never re-trained) ─
     for prev_cfg, prev_label in [
         (DCSAM_CFG,    "DCSAM(v2-tuned)"),
         (DCSAM_CFG_V3, "DCSAM(v3-Adam)"),
         (DCSAM_CFG_V4, "DCSAM(v4-SAM)"),
+        (DCSAM_CFG_V5, "DCSAM(v5-SGD-SAM)"),
     ]:
         accs = []
         for env in TEST_ENVS:
@@ -206,10 +217,10 @@ if __name__ == "__main__":
         if any(a is not None for a in accs):
             results[prev_label] = accs
 
-    # ── DCSAM v5: canonical SGD-SAM (THE run worth waiting for) ──────
-    cfg  = DCSAM_CFG_V5
+    # ── DCSAM v6: TRUE DC-SAM (domain-balanced CE + CORAL + SGD-SAM) ─
+    cfg  = DCSAM_CFG_V6
     algo, tag, label = cfg["algorithm"], cfg["tag"], cfg["label"]
-    print(f"\n  [{label}] SGD+momentum, sgd_lr=1e-3, rho={cfg['hparams']['rho']}, steps={cfg['steps']}")
+    print(f"\n  [{label}] DC-SAM: domain-balanced CE + CORAL(lambda={cfg['hparams']['lambda_feat']}) + SGD-SAM")
     accs = []
     for env in TEST_ENVS:
         out_dir = f"./train_output_{algo.lower()}_pacs_e{env}{tag}"

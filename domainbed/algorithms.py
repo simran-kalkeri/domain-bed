@@ -2692,62 +2692,107 @@ class DCSAM(ERM):
                 lr=hparams["lr"],
                 weight_decay=hparams["weight_decay"],
                 rho=self.rho,
-            )
-
-
-    # ------------------------------------------------------------------
-    # Feature-level augmentation: swap channel statistics between two
-    # randomly paired examples (MixStyle-style, applied in input space
-    # via the featurizer's first response maps rather than raw pixels).
-    # We apply it in *pixel* space here for simplicity while keeping the
-    # consistency check at the feature level.
-    # ------------------------------------------------------------------
-    def _domain_style_aug(self, x_list):
+           # ──────────────────────────────────────────────────────────────────
+    # CORAL loss: align second-order feature statistics across domains.
+    # Deep CORAL (Sun & Saenko 2016) minimises the Frobenius distance
+    # between domain covariance matrices.  Here we compute it jointly
+    # over all domain pairs from a SINGLE shared forward pass —
+    # no extra network calls needed.
+    # ──────────────────────────────────────────────────────────────────
+    def _coral_loss(self, domain_feats):
         """
-        Given a list of per-domain batches, randomly swap the channel mean
-        and std of each sample with a sample from a *different* domain.
-        Returns a single concatenated augmented tensor (same shape as
-        torch.cat(x_list)).
+        Compute pairwise CORAL loss over a list of per-domain feature tensors.
+        All tensors must come from the same forward pass (shared computation graph).
         """
-        aug_batches = []
-        n_domains = len(x_list)
-        for i, x_i in enumerate(x_list):
-            # Pick a source domain different from i
-            j = (i + 1 + torch.randint(n_domains - 1, (1,)).item()) % n_domains
-            x_j = x_list[j]
+        n = len(domain_feats)
+        if n < 2:
+            return torch.tensor(0.0, device=domain_feats[0].device)
 
-            # Compute per-sample channel statistics  (N, C, 1, 1)
-            mean_i = x_i.mean(dim=[2, 3], keepdim=True)
-            std_i  = x_i.std(dim=[2, 3],  keepdim=True) + 1e-6
-            mean_j = x_j.mean(dim=[2, 3], keepdim=True)
-            std_j  = x_j.std(dim=[2, 3],  keepdim=True) + 1e-6
+        d     = domain_feats[0].size(1)
+        total = torch.tensor(0.0, device=domain_feats[0].device)
+        count = 0
 
-            # Normalise x_i, then re-scale with x_j's statistics
-            x_aug = (x_i - mean_i) / std_i * std_j + mean_j
-            aug_batches.append(x_aug)
+        for i in range(n):
+            for j in range(i + 1, n):
+                fi = domain_feats[i] - domain_feats[i].mean(0, keepdim=True)
+                fj = domain_feats[j] - domain_feats[j].mean(0, keepdim=True)
 
-        return torch.cat(aug_batches, dim=0)
+                ni = max(fi.size(0) - 1, 1)
+                nj = max(fj.size(0) - 1, 1)
 
-    # ------------------------------------------------------------------
-    def _compute_loss(self, all_x, all_y):
-        """Single combined-batch loss — same speed as ERM's forward pass."""
+                # Covariance matrices  (d × d)
+                ci = fi.t().mm(fi) / ni
+                cj = fj.t().mm(fj) / nj
+
+                total = total + (ci - cj).norm(p='fro') ** 2
+                count += 1
+
+        # Normalise by 4d² (standard CORAL scaling)
+        return total / (count * 4 * d * d)
+
+    # ──────────────────────────────────────────────────────────────────
+    # DC-SAM objective: one forward pass, two contributions.
+    #
+    # (1) Domain-balanced CE — compute CE per domain from the shared
+    #     logit tensor, then average.  This ensures each domain has
+    #     equal influence on the SAM perturbation direction, preventing
+    #     high-loss domains from monopolising the sharpness search.
+    #
+    # (2) CORAL alignment — penalise covariance mismatch between domain
+    #     feature tensors.  Evaluated at the SAM-perturbed weights this
+    #     encourages a flat minimum that is *also* domain-invariant.
+    # ──────────────────────────────────────────────────────────────────
+    def _compute_dc_loss(self, all_x, minibatches):
+        """
+        Single forward pass → domain-balanced CE + CORAL consistency.
+        Returns (total_loss, ce_loss, coral_loss).
+        """
+        # One combined forward pass — feats and logits sliced by domain below
         feats  = self.featurizer(all_x)
         logits = self.classifier(feats)
-        return F.cross_entropy(logits, all_y)
+
+        domain_ce_losses = []
+        domain_feat_list = []
+        idx = 0
+        for x_d, y_d in minibatches:
+            size  = x_d.size(0)
+            logits_d = logits[idx : idx + size]
+            feats_d  = feats [idx : idx + size]
+            domain_ce_losses.append(F.cross_entropy(logits_d, y_d))
+            domain_feat_list.append(feats_d)
+            idx += size
+
+        # (1) Domain-balanced CE: average loss across domains
+        balanced_ce = torch.stack(domain_ce_losses).mean()
+
+        # (2) CORAL feature alignment
+        coral = self._coral_loss(domain_feat_list) if self.lambda_feat > 0 else \
+                torch.tensor(0.0, device=all_x.device)
+
+        total = balanced_ce + self.lambda_feat * coral
+        return total, balanced_ce, coral
 
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x, _ in minibatches])
-        all_y = torch.cat([y for _, y in minibatches])
 
-        # ── SAM FIRST PASS: find sharpest direction ────────────────────
+        # ── SAM FIRST PASS ─────────────────────────────────────────────
+        # Domain-balanced gradient → perturbation direction treats every
+        # domain equally (not dominated by the highest-loss domain).
         self.optimizer.zero_grad()
-        loss1 = self._compute_loss(all_x, all_y)
+        loss1, ce1, coral1 = self._compute_dc_loss(all_x, minibatches)
         loss1.backward()
         self.optimizer.first_step(zero_grad=True)
 
-        # ── SAM SECOND PASS: update from perturbed weights ────────────
-        loss2 = self._compute_loss(all_x, all_y)
+        # ── SAM SECOND PASS ────────────────────────────────────────────
+        # Evaluate the DC objective at perturbed weights θ + ε.
+        # CORAL at this point encourages domain-invariance at the flat
+        # minimum, not just at the original weights.
+        loss2, ce2, coral2 = self._compute_dc_loss(all_x, minibatches)
         loss2.backward()
         self.optimizer.second_step(zero_grad=True)
 
-        return {"loss": loss1.item()}
+        return {
+            "loss":       loss1.item(),
+            "ce_loss":    ce1.item(),
+            "coral_loss": coral1.item(),
+        }
