@@ -2692,7 +2692,9 @@ class DCSAM(ERM):
                 lr=hparams["lr"],
                 weight_decay=hparams["weight_decay"],
                 rho=self.rho,
-           # ──────────────────────────────────────────────────────────────────
+            )
+
+    # ──────────────────────────────────────────────────────────────────
     # CORAL loss: align second-order feature statistics across domains.
     # Deep CORAL (Sun & Saenko 2016) minimises the Frobenius distance
     # between domain covariance matrices.  Here we compute it jointly
