@@ -72,5 +72,5 @@ The [currently available algorithms](domainbed/algorithms.py) are:
 
 Send us a PR to add your algorithm! Our implementations use ResNet50 / ResNet18 networks ([He et al., 2015](https://arxiv.org/abs/1512.03385)) and the hyper-parameter grids [described here](domainbed/hparams_registry.py).
 
-##DC-SAN Architecture
+## DC-SAN Architecture
 ![alt text](image.png)
