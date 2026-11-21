@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DC-SAM</title>
+<meta name="description" content="DC-SAM: Domain-Consistent Sharpness-Aware Minimization. Domain-balanced cross-entropy and CORAL feature alignment, optimised with SAM, for domain generalisation. Built on DomainBed.">
+<meta name="theme-color" content="#FBFBFD">
+<script>
+  try { if (localStorage.getItem("theme") === "dark") document.documentElement.dataset.theme = "dark"; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 8 Q9 8 12 20 Q16 28 20 20 Q23 8 30 8' fill='none' stroke='%234C3BCF' stroke-width='3.5' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="./" aria-label="DC-SAM, home">
+    <svg viewBox="0 0 32 20" width="30" height="19" aria-hidden="true"><path d="M2 4 Q9 4 12 13 Q16 19 20 13 Q23 4 30 4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+    <span>DC-SAM</span>
+  </a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#method">Method</a>
+    <a href="#results">Results</a>
+    <a href="#setup">Setup</a>
+    <a href="#reproduce">Reproduce</a>
+  </nav>
+  <div class="actions">
+    <a class="icon-btn" href="https://github.com/SparshSunilNaik/domain-bed" aria-label="Source code on GitHub">
+      <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    </a>
+    <button type="button" class="icon-btn" id="theme-toggle" aria-label="Dark mode" aria-pressed="false">
+      <svg class="moon" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a.75.75 0 0 0-.98-.93A10 10 0 1 0 21.43 15.6a.75.75 0 0 0-.93-.98Z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1.5v2.5M12 20v2.5M1.5 12H4M20 12h2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></g></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="title">
+  <div class="hero-head">
+    <h1 id="title"><span class="acronym">DC-SAM</span><span class="fullname">Domain-Consistent Sharpness-Aware Minimization</span></h1>
+    <p class="lede">A model trained on photos, cartoons and paintings should still work on sketches it has never seen. DC-SAM trains toward minima that are flat and shared across domains: it balances the loss across training domains, aligns their feature statistics, and optimises with SAM.</p>
+    <p class="authors">Simran Kalkeri and Sparsh Sunil Naik</p>
+    <div class="cta">
+      <a class="btn btn-solid" href="https://github.com/SparshSunilNaik/domain-bed">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        Code
+      </a>
+      <a class="btn btn-line" href="#results">Results</a>
+      <a class="btn btn-line" href="#reproduce">Reproduce</a>
+    </div>
+  </div>
+
+  <figure class="landscape" aria-labelledby="ls-title">
+    <div class="ls-chart">
+      <svg id="landscape" viewBox="0 0 760 360" role="img" aria-labelledby="ls-title ls-desc"><desc id="ls-desc">Two minima on a loss curve: a narrow, sharp one and a wide, flat one. Shifting the curve to represent an unseen domain raises the loss at the sharp minimum far more than at the flat one.</desc></svg>
+    </div>
+    <div class="ls-side">
+      <figcaption>
+        <h2 id="ls-title">Why flat minima travel better</h2>
+        <p>A new domain shifts the loss surface a little. At a sharp minimum, a small shift means a big jump in loss. At a flat one, the loss barely moves. SAM looks for the flat kind by minimising the worst loss within a radius <i>ρ</i>.</p>
+      </figcaption>
+      <label class="shift-label" for="shift">Shift to an unseen domain <output id="shift-out">0.00</output></label>
+      <input type="range" id="shift" min="0" max="0.6" step="0.01" value="0">
+      <dl class="readout">
+        <div class="ro-sharp"><dt>Sharp minimum</dt><dd><span id="ro-sharp-train">0.05</span><span class="arrow" aria-hidden="true"> to </span><span id="ro-sharp-test">0.05</span></dd></div>
+        <div class="ro-flat"><dt>Flat minimum</dt><dd><span id="ro-flat-train">0.15</span><span class="arrow" aria-hidden="true"> to </span><span id="ro-flat-test">0.15</span></dd></div>
+      </dl>
+      <p class="fine">Loss on the training domains, then on the shifted domain. A conceptual sketch, not measured data.</p>
+    </div>
+  </figure>
+</section>
+
+<section id="method" class="band method" aria-labelledby="method-title">
+  <div class="wrap">
+    <div class="intro">
+      <h2 id="method-title">Method</h2>
+      <p>Plain SAM pools every domain into one gradient, so the domain with the highest loss decides which way the weights are perturbed. DC-SAM makes each domain count equally, and asks for features that look alike across domains at the perturbed weights too. It all happens in one shared forward pass per step.</p>
+    </div>
+
+    <div class="eq-block" role="group" aria-label="DC-SAM objective">
+      <p class="eq" aria-label="L of theta equals one over D times the sum over domains of the cross-entropy, plus lambda times the CORAL loss">
+        <i>L</i>(<i>θ</i>) <span class="op">=</span>
+        <span class="frac"><span>1</span><span><i>D</i></span></span>
+        <span class="sum">∑<sub><i>d</i></sub></span> CE<sub><i>d</i></sub>(<i>θ</i>)
+        <span class="op">+</span> <i>λ</i> · CORAL(<i>θ</i>)
+      </p>
+    </div>
+
+    <ol class="parts">
+      <li class="part">
+        <h3>Domain-balanced cross-entropy</h3>
+        <p>Each batch holds one minibatch per training domain. Cross-entropy is computed per domain from the shared logits and then averaged, so a hard domain can’t dominate the gradient that sets SAM’s perturbation.</p>
+      </li>
+      <li class="part">
+        <h3>CORAL feature alignment</h3>
+        <p>For every pair of domains, the covariance matrices of their ResNet features are compared. The squared Frobenius distance, scaled by 4<i>d</i>², is averaged over pairs and weighted by <i>λ</i> = 0.1.</p>
+        <p class="eq small" aria-label="one over 4 d squared, times the squared Frobenius norm of C i minus C j"><span class="frac"><span>1</span><span>4<i>d</i>²</span></span>‖<i>C</i><sub><i>i</i></sub> − <i>C</i><sub><i>j</i></sub>‖<span class="ss" aria-hidden="true"><span>2</span><span>F</span></span></p>
+      </li>
+      <li class="part">
+        <h3>Sharpness-aware update</h3>
+        <p>Step 1 climbs to the worst nearby point, <i>θ</i> + <i>ε</i> with <i>ε</i> = <i>ρ</i> ∇<i>L</i> / ‖∇<i>L</i>‖. Step 2 takes the gradient there and applies it to the original weights. With SGD at momentum 0.9 and <i>ρ</i> = 0.05.</p>
+      </li>
+    </ol>
+
+    <figure class="arch">
+      <img src="assets/dc-sam-architecture.png" width="825" height="825" loading="lazy" alt="DC-SAM architecture. A multi-domain batch passes through ResNet-18. Features feed a classifier with per-domain cross-entropy losses that are averaged, and a pairwise CORAL alignment loss. The total loss drives a two-step SAM optimiser, giving a flat minimum that is also domain-invariant.">
+      <figcaption>Architecture overview from the repository. The combined batch is sliced by domain after one forward pass; both loss terms are evaluated again at the perturbed weights.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="results" class="band results" aria-labelledby="results-title">
+  <div class="wrap">
+    <div class="intro intro-row">
+      <div>
+        <h2 id="results-title">Results</h2>
+        <p>Leave-one-domain-out accuracy: train on three domains, test on the fourth, repeat for each. Same ResNet-18 backbone and 5,000 steps for every method.</p>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Benchmark">
+        <button type="button" role="tab" id="tab-pacs" aria-selected="true" aria-controls="panel-results" data-bench="pacs">PACS</button>
+        <button type="button" role="tab" id="tab-vlcs" aria-selected="false" aria-controls="panel-results" data-bench="vlcs" tabindex="-1">VLCS</button>
+      </div>
+    </div>
+
+    <div id="panel-results" role="tabpanel" aria-labelledby="tab-pacs" class="results-panel">
+      <div class="headline-nums" id="headline"></div>
+      <figure class="dotplot-fig">
+        <svg id="dotplot" viewBox="0 0 900 360" role="img" aria-labelledby="dot-desc"><desc id="dot-desc">Accuracy per held-out domain for ERM, ERM++ and DC-SAM.</desc></svg>
+        <figcaption class="legend">
+          <span class="lg lg-erm">ERM</span>
+          <span class="lg lg-ermpp">ERM++</span>
+          <span class="lg lg-dcsam">DC-SAM</span>
+        </figcaption>
+      </figure>
+      <div class="table-wrap">
+        <table class="results-table" id="results-table"></table>
+      </div>
+      <p class="fine">Accuracy in percent on the held-out domain, as reported in the repository README.</p>
+    </div>
+  </div>
+</section>
+
+<section id="setup" class="band setup" aria-labelledby="setup-title">
+  <div class="wrap setup-grid">
+    <div class="intro">
+      <h2 id="setup-title">Setup</h2>
+      <p>The comparison holds everything fixed except the training algorithm. ERM++ normally uses a ResNet-50 with AugMix; here it runs on the same ResNet-18 as the others.</p>
+    </div>
+    <dl class="spec">
+      <div><dt>Backbone</dt><dd>ResNet-18, ImageNet-pretrained</dd></div>
+      <div><dt>Training steps</dt><dd>5,000 per held-out domain</dd></div>
+      <div><dt>Optimiser</dt><dd>SAM over SGD, momentum 0.9, learning rate 10<sup>−3</sup></dd></div>
+      <div><dt>SAM radius <i>ρ</i></dt><dd>0.05</dd></div>
+      <div><dt>CORAL weight <i>λ</i></dt><dd>0.1</dd></div>
+      <div><dt>Datasets</dt><dd><span class="ds">PACS</span> art painting, cartoon, photo, sketch<br><span class="ds">VLCS</span> Caltech101, LabelMe, SUN09, VOC2007</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section id="reproduce" class="band reproduce" aria-labelledby="repro-title">
+  <div class="wrap repro-grid">
+    <div class="intro">
+      <h2 id="repro-title">Reproduce</h2>
+      <p>Each script trains ERM, ERM++ and DC-SAM on all four held-out domains and prints a summary table. You’ll need PyTorch and torchvision with a GPU.</p>
+    </div>
+    <ol class="steps">
+      <li>
+        <h3>Install</h3>
+        <div class="cmd"><pre><code>git clone https://github.com/SparshSunilNaik/domain-bed.git
+cd domain-bed
+pip install torch torchvision
+pip install -r domainbed/requirements.txt</code></pre><button type="button" class="copy" aria-label="Copy install commands">Copy</button></div>
+      </li>
+      <li>
+        <h3>Get the data</h3>
+        <div class="cmd"><pre><code>python download_pacs_hf.py</code></pre><button type="button" class="copy" aria-label="Copy the PACS download command">Copy</button></div>
+        <p class="hint">Fetches PACS from Hugging Face into <code>./data/PACS</code>. DomainBed’s <code>domainbed/scripts/download.py</code> covers VLCS and the other datasets.</p>
+      </li>
+      <li>
+        <h3>Run the comparisons</h3>
+        <div class="cmd"><pre><code>python run_fair_comparison.py
+python run_vlcs_comparison.py</code></pre><button type="button" class="copy" aria-label="Copy the comparison commands">Copy</button></div>
+        <p class="hint">Add <code>--results-only</code> to rebuild the summary from finished runs.</p>
+      </li>
+      <li>
+        <h3>Or train one model</h3>
+        <div class="cmd"><pre><code>python -m domainbed.scripts.train --data_dir ./data --dataset PACS --algorithm DCSAM --test_envs 3 --steps 5000 --hparams '{"resnet18": true, "resnet50_augmix": false, "rho": 0.05, "lambda_feat": 0.1, "lambda_var": 0.0, "sam_sgd": true, "sgd_lr": 0.001}'</code></pre><button type="button" class="copy" aria-label="Copy the single training command">Copy</button></div>
+        <p class="hint">Test environment 3 is sketch.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="band built-on" aria-labelledby="built-title">
+  <div class="wrap built-grid">
+    <h2 id="built-title">Built on DomainBed</h2>
+    <p>DC-SAM is implemented as one more algorithm inside <a href="https://github.com/facebookresearch/DomainBed">DomainBed</a>, the PyTorch suite from <a href="https://arxiv.org/abs/2007.01434">In Search of Lost Domain Generalization</a> (Gulrajani and Lopez-Paz, 2020). Its datasets, training loop, model selection and 30-plus reference algorithms are used unchanged. DomainBed is released under the MIT license.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p>DC-SAM, by Simran Kalkeri and Sparsh Sunil Naik</p>
+    <p><a href="https://github.com/SparshSunilNaik/domain-bed">Source on GitHub</a></p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
